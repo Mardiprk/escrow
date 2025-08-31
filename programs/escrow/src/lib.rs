@@ -27,14 +27,94 @@ pub mod escrow {
 
 #[derive(Accounts)]
 #[instruction(escrow_id: u64)]
-pub struct InitializeEscrow<'info> {}
+pub struct InitializeEscrow<'info> {
+    //→ the person locking tokens (signer)
+    #[account(mut)]
+    pub depoister: Signer<'info>,
+    /// CHECK: This is safe as we only store the pubkey
+    pub beneficiray: AccountInfo<'info>,
+    //→ which token (e.g., USDC, ora ny custom SPL token).
+    pub mint: Account<'info, Mint>,
+    //→ PDA state account storing escrow metadata.
+    #[account(
+        init,
+        payer = depositer,
+        space = EscrowAccount::INIT_SPACE,
+        seeds =[b"escrow", escrow_id.to_le_bytes().as_ref()],
+        bump
+    )]
+    pub escrow_account: Account<'info, EscrowAccount>,
+    //→ PDA token account holding tokens.
+    #[account(
+        init,
+        payer = depositer,
+        token::mint = mint,
+        token::authority = escrow_account,
+        seeds =[b"escrow", escrow_id.to_le_bytes().as_ref()],
+        bump
+    )]
+    pub escrow_vault: Account<'info, TokenAccount>,
+    //→ depositor’s token account (from which tokens are transferred).
+    #[account(
+        mut,
+        constraint = depositer_token_account.owner == depoister.key(),
+        constraint = depositer_token_account.mint == mint.key()
+    )]
+    pub depositer_token_account: Account<'info, TokenAccount>,
+    pub token_program: Account<'info, Token>,
+    pub system_program: Program<'info, System>,
+    pub rent: Sysvar<'info, Rent>,
+}
 
 #[derive(Accounts)]
-pub struct ReleaseEscrow<'info> {}
+pub struct ReleaseEscrow<'info> {
+    pub authority: Signer<'info>,
+
+    #[account(
+        mut,
+        seeds =[b"escrow", escrow_account.escrow_id.to_le_bytes().as_ref()],
+        bump
+    )]
+    pub escrow_account: Account<'info, EscrowAccount>,
+    #[account(
+        mut,
+        seeds =[b"escrow", escrow_account.escrow_id.to_le_bytes().as_ref()],
+        bump
+    )]
+    pub escrow_vault: Account<'info, TokenAccount>,
+
+    #[account(
+        mut,
+        constraint = beneficiary_token_account.owner = escrow_account.beneficiary,
+        constraint = beneficiary_token_account.mint = escrow_vault.mint
+    )]
+    pub beneficiary_token_account: Account<'info, TokenAccount>,
+    pub token_program: Account<'info, Token>,
+}
 
 #[derive(Accounts)]
-pub struct CancelEscrow<'info> {}
-
+pub struct CancelEscrow<'info> {
+    pub depositer: Signer<'info>,
+    #[account(
+        mut,
+        seeds =[b"escrow", escrow_account.escrow_id.to_le_bytes().as_ref()],
+        bump
+    )]
+    pub escrow_account: Account<'info, EscrowAccount>,
+    #[account(
+        mut,
+        seeds =[b"escrow", escrow_account.escrow_id.to_le_bytes().as_ref()],
+        bump
+    )]
+    pub escrow_vault: Account<'info, TokenAccount>,
+    #[account(
+        mut,
+        constraint = beneficiary_token_account.owner = depoister.key(),
+        constraint = beneficiary_token_account.mint = escrow_vault.mint
+    )]
+    pub beneficiary_token_account: Account<'info, TokenAccount>,
+    pub token_program: Account<'info, Token>,
+}
 #[account]
 #[derive(InitSpace)]
 pub struct EscrowAccount {
